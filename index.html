@@ -198,9 +198,6 @@
             resultsSection.classList.add('hidden');
             errorMessage.textContent = '';
             
-            // --- MODIFIED: Always set the end date to today before analysis ---
-            endDateInput.value = new Date().toISOString().split('T')[0];
-            
             try {
                 const response = await fetch(`${GOOGLE_SHEET_CSV_URL}&t=${new Date().getTime()}`);
                 if (!response.ok) throw new Error(`ไม่สามารถดึงข้อมูลได้: ${response.statusText}`);
@@ -236,9 +233,17 @@
                 const initialCapital = parseFloat(initialCapitalInput.value);
                 const finalCapital = runCompoundingSimulation(filteredTrades, initialCapital);
                 
+                // --- MODIFIED: Calculate totalDays based on latest trade data ---
                 let totalDays = 1;
-                if(startDate && endDate && endDate > startDate){
-                    totalDays = Math.max(Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)), 1);
+                if (startDate && filteredTrades.length > 0) {
+                    // Get the timestamp of the last trade in the filtered period.
+                    // We assume the data is chronologically sorted.
+                    const latestTradeDate = filteredTrades[filteredTrades.length - 1].Timestamp;
+                    
+                    // Ensure the latest trade is after the start date to calculate duration
+                    if (latestTradeDate > startDate) {
+                        totalDays = Math.max(Math.round((latestTradeDate - startDate) / (1000 * 60 * 60 * 24)), 1);
+                    }
                 }
                 
                 const totalProfit = finalCapital - initialCapital;
@@ -437,16 +442,16 @@
 
         // Auto-run on page load
         window.addEventListener('DOMContentLoaded', async () => {
-            // Set default start date
-            const today = new Date();
+            // Set default date range
             const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(today.getDate() - 30);
+            thirtyDaysAgo.setDate(new Date().getDate() - 30);
+            endDateInput.value = '2025-12-31'; // Set default end date
             startDateInput.value = thirtyDaysAgo.toISOString().split('T')[0];
             
             // Fetch the initial capital first
             await fetchInitialCapital();
             
-            // Then, run the full analysis (which will also set the end date)
+            // Then, run the full analysis
             analyzeBtn.click();
         });
 
