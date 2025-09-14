@@ -169,7 +169,12 @@
 
     <script>
         // --- CONFIGURATION ---
-        const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1X32mobMOee9PpocJbSz1wHZOVn7QH3VDYOtnTiKVVUI/export?format=csv&gid=1523509526';
+        const GOOGLE_SHEET_ID = '1X32mobMOee9PpocJbSz1wHZOVn7QH3VDYOtnTiKVVUI';
+        const TRADE_DATA_GID = '1523509526';
+        const CAPITAL_DATA_GID = 'YOUR_NEW_GID_HERE'; // <--- ใส่ GID ของชีตใหม่ (เช่น Config) ตรงนี้
+
+        const GOOGLE_SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=${TRADE_DATA_GID}`;
+        const GOOGLE_SHEET_CAPITAL_URL = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=${CAPITAL_DATA_GID}&range=A1`;
         // -------------------
 
         // DOM Elements
@@ -189,11 +194,6 @@
 
         // Main function to fetch and process data
         async function loadAndProcessData() {
-             if (GOOGLE_SHEET_CSV_URL.includes('YOUR_GOOGLE_SHEET')) {
-                errorMessage.textContent = 'กรุณาตั้งค่า GOOGLE_SHEET_CSV_URL ในโค้ดก่อนใช้งาน';
-                return;
-            }
-            
             loadingDiv.classList.remove('hidden');
             resultsSection.classList.add('hidden');
             errorMessage.textContent = '';
@@ -204,6 +204,18 @@
                 const csvText = await response.text();
                 
                 let trades = parseCSV(csvText);
+
+                // --- NEW LOGIC: Apply the TP1 rule ---
+                // If a trade is 'Short TP1' or 'Long TP1', the next trade's profit is forced to 0.
+                for (let i = 0; i < trades.length - 1; i++) {
+                    const currentTradeView = (trades[i].TradingView || '').trim();
+                    if (currentTradeView === 'Short TP1' || currentTradeView === 'Long TP1') {
+                        // Set the NEXT trade's profit to 0
+                        if (trades[i + 1]) {
+                            trades[i + 1].Profit = 0;
+                        }
+                    }
+                }
 
                 const startDate = startDateInput.value ? new Date(startDateInput.value) : null;
                 const endDate = endDateInput.value ? new Date(endDateInput.value) : null;
@@ -223,14 +235,14 @@
                 const initialCapital = parseFloat(initialCapitalInput.value);
                 const finalCapital = runCompoundingSimulation(filteredTrades, initialCapital);
                 
-                // Calculate average daily return once and pass it to other functions
                 let totalDays = 1;
                 if(startDate && endDate && endDate > startDate){
                     totalDays = Math.max(Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)), 1);
                 }
-                const totalGrowthFactor = initialCapital > 0 ? finalCapital / initialCapital : 1;
-                const avgDailyGrowthFactor = totalDays > 0 ? Math.pow(totalGrowthFactor, 1 / totalDays) : 1;
-                const avgDailyReturnPercent = (avgDailyGrowthFactor - 1) * 100;
+                
+                const totalProfit = finalCapital - initialCapital;
+                const totalReturnPercent = initialCapital > 0 ? (totalProfit / initialCapital) * 100 : 0;
+                const avgDailyReturnPercent = totalDays > 0 ? totalReturnPercent / totalDays : 0;
 
                 calculateAndDisplayMetrics(filteredTrades, initialCapital, finalCapital, avgDailyReturnPercent);
                 const equityData = calculateEquityCurve(filteredTrades, initialCapital);
@@ -246,6 +258,25 @@
                 errorMessage.textContent = `เกิดข้อผิดพลาด: ${error.message}`;
             } finally {
                 loadingDiv.classList.add('hidden');
+            }
+        }
+        
+        async function fetchInitialCapital() {
+            if (CAPITAL_DATA_GID === 'YOUR_NEW_GID_HERE') {
+                console.warn("Capital GID is not set. Using default value.");
+                return; // Exit if the GID is not set
+            }
+            try {
+                const response = await fetch(`${GOOGLE_SHEET_CAPITAL_URL}&t=${new Date().getTime()}`);
+                if (!response.ok) throw new Error('ไม่สามารถดึงค่าทุนเริ่มต้นได้');
+                const text = await response.text();
+                const capitalValue = parseFloat(text.trim().replace(/,/g, '')); // Remove commas and parse
+                if (!isNaN(capitalValue)) {
+                    initialCapitalInput.value = capitalValue;
+                }
+            } catch (error) {
+                console.error("Error fetching initial capital:", error);
+                // Don't show an error message, just use the default value
             }
         }
 
@@ -365,12 +396,10 @@
             tableBody.innerHTML = '';
             const projectionDays = [10, 30, 60, 90];
             
-            // Calculate growth factor directly from the average daily return percentage
             const dailyGrowthFactor = 1 + (avgDailyReturnPercent / 100);
 
             projectionDays.forEach(days => {
                 let futureValue = finalCapital;
-                // Compound the final capital for the number of projection days
                 if (futureValue > 0) {
                      futureValue *= Math.pow(dailyGrowthFactor, days);
                 }
@@ -406,12 +435,21 @@
 
         analyzeBtn.addEventListener('click', loadAndProcessData);
 
-        // Set default date range when the page is loaded
-        const today = new Date();
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(today.getDate() - 30);
-        endDateInput.value = today.toISOString().split('T')[0];
-        startDateInput.value = thirtyDaysAgo.toISOString().split('T')[0];
+        // Auto-run on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Set default date range
+            const today = new Date();
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(today.getDate() - 30);
+            endDateInput.value = today.toISOString().split('T')[0];
+            startDateInput.value = thirtyDaysAgo.toISOString().split('T')[0];
+            
+            // Fetch the initial capital first
+            await fetchInitialCapital();
+            
+            // Then, run the full analysis
+            analyzeBtn.click();
+        });
 
     </script>
 </body>
