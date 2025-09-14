@@ -198,6 +198,9 @@
             resultsSection.classList.add('hidden');
             errorMessage.textContent = '';
             
+            // --- MODIFIED: Always set the end date to today before analysis ---
+            endDateInput.value = new Date().toISOString().split('T')[0];
+            
             try {
                 const response = await fetch(`${GOOGLE_SHEET_CSV_URL}&t=${new Date().getTime()}`);
                 if (!response.ok) throw new Error(`ไม่สามารถดึงข้อมูลได้: ${response.statusText}`);
@@ -205,12 +208,10 @@
                 
                 let trades = parseCSV(csvText);
 
-                // --- NEW LOGIC: Apply the TP1 rule ---
-                // If a trade is 'Short TP1' or 'Long TP1', the next trade's profit is forced to 0.
+                // Apply the TP1 rule
                 for (let i = 0; i < trades.length - 1; i++) {
                     const currentTradeView = (trades[i].TradingView || '').trim();
                     if (currentTradeView === 'Short TP1' || currentTradeView === 'Long TP1') {
-                        // Set the NEXT trade's profit to 0
                         if (trades[i + 1]) {
                             trades[i + 1].Profit = 0;
                         }
@@ -264,19 +265,18 @@
         async function fetchInitialCapital() {
             if (CAPITAL_DATA_GID === 'YOUR_NEW_GID_HERE') {
                 console.warn("Capital GID is not set. Using default value.");
-                return; // Exit if the GID is not set
+                return;
             }
             try {
                 const response = await fetch(`${GOOGLE_SHEET_CAPITAL_URL}&t=${new Date().getTime()}`);
                 if (!response.ok) throw new Error('ไม่สามารถดึงค่าทุนเริ่มต้นได้');
                 const text = await response.text();
-                const capitalValue = parseFloat(text.trim().replace(/,/g, '')); // Remove commas and parse
+                const capitalValue = parseFloat(text.trim().replace(/,/g, ''));
                 if (!isNaN(capitalValue)) {
                     initialCapitalInput.value = capitalValue;
                 }
             } catch (error) {
                 console.error("Error fetching initial capital:", error);
-                // Don't show an error message, just use the default value
             }
         }
 
@@ -437,17 +437,16 @@
 
         // Auto-run on page load
         window.addEventListener('DOMContentLoaded', async () => {
-            // Set default date range
+            // Set default start date
             const today = new Date();
             const thirtyDaysAgo = new Date();
             thirtyDaysAgo.setDate(today.getDate() - 30);
-            endDateInput.value = today.toISOString().split('T')[0];
             startDateInput.value = thirtyDaysAgo.toISOString().split('T')[0];
             
             // Fetch the initial capital first
             await fetchInitialCapital();
             
-            // Then, run the full analysis
+            // Then, run the full analysis (which will also set the end date)
             analyzeBtn.click();
         });
 
