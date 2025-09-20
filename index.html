@@ -129,17 +129,19 @@
 
                 <div class="card">
                     <h2 class="text-2xl font-semibold mb-4 text-white">คาดการณ์พอร์ตในอนาคต (ทบต้น)</h2>
-                    <table class="w-full text-left">
-                        <thead>
-                            <tr class="border-b border-gray-700 text-gray-400">
-                                <th class="py-2">ระยะเวลา</th>
-                                <th class="py-2 text-right">มูลค่าพอร์ตโดยประมาณ</th>
-                            </tr>
-                        </thead>
-                        <tbody id="projectionTable">
-                            <!-- Projection data will be inserted here -->
-                        </tbody>
-                    </table>
+                    <div class="overflow-x-auto max-h-96">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="border-b border-gray-700 text-gray-400">
+                                    <th class="py-2">ระยะเวลา</th>
+                                    <th class="py-2 text-right">มูลค่าพอร์ตโดยประมาณ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="projectionTable">
+                                <!-- Projection data will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -233,22 +235,33 @@
                 const initialCapital = parseFloat(initialCapitalInput.value);
                 const finalCapital = runCompoundingSimulation(filteredTrades, initialCapital);
                 
-                // --- MODIFIED: Calculate totalDays based on latest trade data ---
-                let totalDays = 1;
-                if (startDate && filteredTrades.length > 0) {
-                    // Get the timestamp of the last trade in the filtered period.
-                    // We assume the data is chronologically sorted.
-                    const latestTradeDate = filteredTrades[filteredTrades.length - 1].Timestamp;
-                    
-                    // Ensure the latest trade is after the start date to calculate duration
-                    if (latestTradeDate > startDate) {
-                        totalDays = Math.max(Math.round((latestTradeDate - startDate) / (1000 * 60 * 60 * 24)), 1);
+                // --- NEW CALCULATION for Average Daily Return ---
+                const endOfDayValues = new Map();
+                let runningCapital = initialCapital;
+                filteredTrades.forEach(trade => {
+                    runningCapital *= (1 + trade.Profit / 100);
+                    const dateKey = trade.Timestamp.toISOString().split('T')[0];
+                    endOfDayValues.set(dateKey, runningCapital);
+                });
+
+                const dailyValues = Array.from(endOfDayValues.values());
+                const dailyReturns = [];
+                let previousValue = initialCapital;
+
+                dailyValues.forEach(currentValue => {
+                    if (previousValue > 0) { // Avoid division by zero
+                        const dailyReturn = (currentValue / previousValue) - 1;
+                        dailyReturns.push(dailyReturn);
                     }
-                }
-                
+                    previousValue = currentValue;
+                });
+
+                const sumOfReturns = dailyReturns.reduce((acc, val) => acc + val, 0);
+                const avgDailyReturn = dailyReturns.length > 0 ? sumOfReturns / dailyReturns.length : 0;
+                const avgDailyReturnPercent = avgDailyReturn * 100;
+
+                // The totalProfit calculation remains the same for its own metric
                 const totalProfit = finalCapital - initialCapital;
-                const totalReturnPercent = initialCapital > 0 ? (totalProfit / initialCapital) * 100 : 0;
-                const avgDailyReturnPercent = totalDays > 0 ? totalReturnPercent / totalDays : 0;
 
                 calculateAndDisplayMetrics(filteredTrades, initialCapital, finalCapital, avgDailyReturnPercent);
                 const equityData = calculateEquityCurve(filteredTrades, initialCapital);
@@ -334,9 +347,13 @@
 
         function calculateAndDisplayMetrics(trades, initialCapital, finalCapital, avgDailyReturnPercent) {
             const totalProfit = finalCapital - initialCapital;
-            const tradeCount = trades.length;
+            const tradeCount = trades.length; // Total trades remains the same
+
+            // --- MODIFIED: Win Rate Calculation ---
             const winningTrades = trades.filter(t => t.Profit > 0).length;
-            const winRate = tradeCount > 0 ? (winningTrades / tradeCount) * 100 : 0;
+            const losingTrades = trades.filter(t => t.Profit < 0).length;
+            const totalCountedTrades = winningTrades + losingTrades;
+            const winRate = totalCountedTrades > 0 ? (winningTrades / totalCountedTrades) * 100 : 0;
             
             const totalProfitEl = document.getElementById('totalProfit');
             totalProfitEl.textContent = formatCurrency(totalProfit);
@@ -399,25 +416,27 @@
         function projectAndDisplayFutureGrowth(finalCapital, avgDailyReturnPercent) {
             const tableBody = document.getElementById('projectionTable');
             tableBody.innerHTML = '';
-            const projectionDays = [10, 30, 60, 90];
             
             const dailyGrowthFactor = 1 + (avgDailyReturnPercent / 100);
 
-            projectionDays.forEach(days => {
+            // --- MODIFIED: Loop from 5 to 60 days, incrementing by 5 ---
+            for (let days = 5; days <= 60; days += 5) {
                 let futureValue = finalCapital;
                 if (futureValue > 0) {
                      futureValue *= Math.pow(dailyGrowthFactor, days);
                 }
 
+                const displayValue = futureValue / 20;
+
                 const row = `
                     <tr class="border-b border-gray-700">
                         <td class="py-3">อีก ${days} วัน</td>
-                        <td class="py-3 text-right font-semibold ${futureValue >= finalCapital ? 'text-green-400' : 'text-red-400'}">
-                            ${formatCurrency(futureValue)}
+                        <td class="py-3 text-right font-semibold ${displayValue >= (finalCapital / 20) ? 'text-green-400' : 'text-red-400'}">
+                            ${formatCurrency(displayValue)}
                         </td>
                     </tr>`;
                 tableBody.innerHTML += row;
-            });
+            }
         }
         
         function displayTradeTable(trades) {
